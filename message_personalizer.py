@@ -165,14 +165,14 @@ Template D (Browsing Fallback) - Use when profile information is sparse or gener
 Return ONLY the completed second line text. No explanations, no quotes, no markdown formatting. Just the plain text that will replace {{Second Line}} in the message.
 </output_format>"""
 
-        response = client.chat.completions.create(
-            model="gpt-5-mini",
-            max_tokens=200,
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }]
-        )
+    response = client.chat.completions.create(
+        model="gpt-5-mini",
+        max_completion_tokens=200,
+        messages=[{
+            "role": "user",
+            "content": prompt
+        }]
+    )
         
         second_line = response.choices[0].message.content.strip()
         

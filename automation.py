@@ -29,6 +29,7 @@ RETRY_DELAY = 2000
 # Parallel processing
 MAX_WORKERS = 5  # Number of concurrent workers
 BATCH_SIZE = 10  # Show stats every N attendees
+HEADLESS = True  # Run browsers in headless mode (no UI, faster)
 
 def load_cookies() -> List[Dict]:
     """Load cookies from cookies.json."""
@@ -38,7 +39,7 @@ def load_cookies() -> List[Dict]:
 async def setup_browser() -> tuple[Browser, BrowserContext, Page]:
     """Setup browser with cookies."""
     playwright = await async_playwright().start()
-    browser = await playwright.chromium.launch(headless=False)
+    browser = await playwright.chromium.launch(headless=HEADLESS)
     context = await browser.new_context()
     
     cookies = load_cookies()
@@ -47,13 +48,15 @@ async def setup_browser() -> tuple[Browser, BrowserContext, Page]:
     page = await context.new_page()
     return browser, context, page
 
-async def create_worker_context(browser: Browser) -> tuple[BrowserContext, Page]:
-    """Create a new browser context for a worker."""
+async def create_worker_browser() -> tuple[Browser, BrowserContext, Page]:
+    """Create a new browser instance for a worker."""
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch(headless=HEADLESS)
     context = await browser.new_context()
     cookies = load_cookies()
     await context.add_cookies(cookies)
     page = await context.new_page()
-    return context, page
+    return browser, context, page
 
 async def scroll_and_collect_profiles(page: Page) -> List[str]:
     """Scroll page and collect all profile URLs."""
@@ -260,11 +263,11 @@ async def process_attendee(page: Page, profile_url: str) -> bool:
 processed_count = 0
 processed_lock = asyncio.Lock()
 
-async def worker(worker_id: int, browser: Browser, profile_urls: List[str], semaphore: asyncio.Semaphore):
+async def worker(worker_id: int, profile_urls: List[str], semaphore: asyncio.Semaphore, total_urls: int):
     """Worker that processes attendees concurrently."""
     global processed_count
     
-    context, page = await create_worker_context(browser)
+    browser, context, page = await create_worker_browser()
     
     try:
         for profile_url in profile_urls:
@@ -273,7 +276,7 @@ async def worker(worker_id: int, browser: Browser, profile_urls: List[str], sema
                     processed_count += 1
                     current = processed_count
                 
-                logger.info(f"[Worker {worker_id}] [{current}/{len(profile_urls) * MAX_WORKERS}] Processing {profile_url}")
+                logger.info(f"[Worker {worker_id}] [{current}/{total_urls}] Processing {profile_url}")
                 
                 success = await process_attendee(page, profile_url)
                 
@@ -284,6 +287,7 @@ async def worker(worker_id: int, browser: Browser, profile_urls: List[str], sema
                     logger.info(f"\n[Progress] {stats}")
     finally:
         await context.close()
+        await browser.close()
 
 async def main():
     """Main automation flow with parallel processing."""
@@ -333,9 +337,9 @@ async def main():
         # Create semaphore to control concurrency
         semaphore = asyncio.Semaphore(MAX_WORKERS)
         
-        # Start all workers
+        # Start all workers (each with own browser instance)
         workers = [
-            worker(i + 1, browser, url_chunks[i], semaphore)
+            worker(i + 1, url_chunks[i], semaphore, len(profile_urls))
             for i in range(len(url_chunks))
         ]
         
