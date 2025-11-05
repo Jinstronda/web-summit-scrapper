@@ -12,7 +12,20 @@ It's built to be resume-able - if something goes wrong or you stop it, it picks 
 
 ## Setup
 
-First, install Python dependencies:
+### Option 1: Using uv (Recommended - Faster)
+
+```bash
+# Deactivate conda if active
+conda deactivate
+
+# Install dependencies with uv
+uv pip install -r requirements.txt
+
+# Install Playwright browsers
+uv run playwright install chromium
+```
+
+### Option 2: Using pip
 
 ```bash
 pip install -r requirements.txt
@@ -52,11 +65,23 @@ The AI automatically:
 
 ## Running
 
-Just run:
+### With uv (if you used uv to install)
+
+```bash
+# Deactivate conda first
+conda deactivate
+
+# Run the automation
+uv run python automation.py
+```
+
+### With standard Python
 
 ```bash
 python automation.py
 ```
+
+or double-click `run.bat`
 
 The script will:
 1. Open a browser (you'll see it working - not headless)
