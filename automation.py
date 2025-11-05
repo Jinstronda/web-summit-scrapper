@@ -31,6 +31,9 @@ MAX_WORKERS = 5  # Number of concurrent workers
 BATCH_SIZE = 10  # Show stats every N attendees
 HEADLESS = False  # Run browsers in headless mode (no UI, faster)
 
+# Scraping mode
+SCRAPE_ONLY = True  # Set to True to only collect data without sending meeting requests
+
 def load_cookies() -> List[Dict]:
     """Load cookies from cookies.json."""
     with open('cookies.json', 'r') as f:
@@ -228,6 +231,11 @@ async def process_attendee(page: Page, profile_url: str, worker_id: int) -> bool
         if attendee['meeting_requested']:
             logger.info(f"[Worker {worker_id}] Skipping {profile_id} - already processed")
             return True
+        
+        if SCRAPE_ONLY:
+            logger.info(f"[Worker {worker_id}] Attendee {profile_id} exists - skipping (SCRAPE_ONLY mode)")
+            return True
+            
         logger.info(f"[Worker {worker_id}] Attendee {profile_id} exists, sending meeting request...")
         # Convert DB row to dict format for personalizer
         attendee_data = {
@@ -248,6 +256,11 @@ async def process_attendee(page: Page, profile_url: str, worker_id: int) -> bool
         
         db.insert_attendee(data)
         logger.info(f"[Worker {worker_id}] Saved attendee: {data['name']}")
+        
+        if SCRAPE_ONLY:
+            logger.info(f"[Worker {worker_id}] SCRAPE_ONLY mode - skipping meeting request")
+            return True
+            
         attendee_data = data
     
     attendee_name = attendee_data['name']
@@ -316,13 +329,16 @@ async def main():
     
     db.create_database()
     
-    # Check for API key
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.error("OPENAI_API_KEY not set! Please set it as an environment variable.")
-        logger.error("Example: set OPENAI_API_KEY=your_key_here")
-        return
-    
-    logger.info("Using AI-powered personalized messages")
+    if SCRAPE_ONLY:
+        logger.info("🔍 SCRAPE_ONLY MODE - Will only collect attendee data, no meeting requests")
+    else:
+        # Check for API key only if sending meeting requests
+        if not os.getenv("OPENAI_API_KEY"):
+            logger.error("OPENAI_API_KEY not set! Please set it as an environment variable.")
+            logger.error("Example: set OPENAI_API_KEY=your_key_here")
+            return
+        
+        logger.info("Using AI-powered personalized messages")
     
     browser, context, page = await setup_browser()
     
