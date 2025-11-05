@@ -167,7 +167,6 @@ Return ONLY the completed second line text. No explanations, no quotes, no markd
 
         response = client.chat.completions.create(
             model="gpt-5-mini",
-            max_completion_tokens=200,
             messages=[{
                 "role": "user",
                 "content": prompt
