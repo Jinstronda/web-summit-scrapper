@@ -53,9 +53,8 @@ async def create_worker_page(context: BrowserContext) -> Page:
     page = await context.new_page()
     return page
 
-async def scroll_and_collect_profiles(page: Page) -> List[str]:
+async def scroll_and_collect_profiles(page: Page, worker_id: int) -> List[str]:
     """Scroll page and collect all profile URLs."""
-    logger.info("Collecting profile URLs...")
     profile_urls = set()
     last_count = 0
     no_change_count = 0
@@ -71,12 +70,12 @@ async def scroll_and_collect_profiles(page: Page) -> List[str]:
                 profile_urls.add(base_url)
         
         current_count = len(profile_urls)
-        logger.info(f"Found {current_count} profiles so far...")
+        logger.info(f"[Worker {worker_id}] Found {current_count} profiles so far...")
         
         if current_count == last_count:
             no_change_count += 1
             if no_change_count >= 3:
-                logger.info("No new profiles found after 3 scrolls. Stopping.")
+                logger.info(f"[Worker {worker_id}] No new profiles found after 3 scrolls. Stopping.")
                 break
         else:
             no_change_count = 0
@@ -88,10 +87,10 @@ async def scroll_and_collect_profiles(page: Page) -> List[str]:
         
         loading = await page.query_selector('text="Loading..."')
         if not loading:
-            logger.info("No loading indicator found. Reached end.")
+            logger.info(f"[Worker {worker_id}] No loading indicator found. Reached end.")
             break
     
-    logger.info(f"Total profiles collected: {len(profile_urls)}")
+    logger.info(f"[Worker {worker_id}] Total profiles collected: {len(profile_urls)}")
     return list(profile_urls)
 
 async def extract_profile_data(page: Page, profile_url: str) -> Optional[Dict]:
@@ -258,20 +257,31 @@ async def process_attendee(page: Page, profile_url: str, worker_id: int) -> bool
 processed_count = 0
 processed_lock = asyncio.Lock()
 
-async def worker(worker_id: int, context: BrowserContext, profile_urls: List[str], semaphore: asyncio.Semaphore, total_urls: int):
+async def worker(worker_id: int, context: BrowserContext, semaphore: asyncio.Semaphore):
     """Worker that processes attendees concurrently in its own tab."""
     global processed_count
     
     page = await create_worker_page(context)
     
     try:
-        for profile_url in profile_urls:
+        # Each worker loads the discovery page independently
+        logger.info(f"[Worker {worker_id}] Navigating to discovery page...")
+        await page.goto(DISCOVERY_URL, wait_until='domcontentloaded')
+        await asyncio.sleep(3)
+        
+        # Each worker collects its own profile URLs
+        logger.info(f"[Worker {worker_id}] Collecting profile URLs...")
+        profile_urls = await scroll_and_collect_profiles(page, worker_id)
+        logger.info(f"[Worker {worker_id}] Found {len(profile_urls)} profiles to process")
+        
+        # Process each profile
+        for idx, profile_url in enumerate(profile_urls, 1):
             async with semaphore:
                 async with processed_lock:
                     processed_count += 1
                     current = processed_count
                 
-                logger.info(f"[Worker {worker_id}] [{current}/{total_urls}] Processing {profile_url}")
+                logger.info(f"[Worker {worker_id}] [{idx}/{len(profile_urls)}] (Global: {current}) Processing {profile_url}")
                 
                 success = await process_attendee(page, profile_url, worker_id)
                 
@@ -304,37 +314,18 @@ async def main():
     browser, context, page = await setup_browser()
     
     try:
-        logger.info("Navigating to discovery page...")
-        await page.goto(DISCOVERY_URL, wait_until='domcontentloaded')
-        await asyncio.sleep(3)
+        # Close the initial page, workers will create their own
+        await page.close()
         
-        logger.info("Collecting all profile URLs...")
-        profile_urls = await scroll_and_collect_profiles(page)
-        
-        # Close the initial context (workers will create their own)
-        await context.close()
-        
-        logger.info(f"Processing {len(profile_urls)} profiles with {MAX_WORKERS} workers...")
-        
-        # Split URLs among workers
-        chunk_size = len(profile_urls) // MAX_WORKERS
-        url_chunks = [
-            profile_urls[i:i + chunk_size] 
-            for i in range(0, len(profile_urls), chunk_size)
-        ]
-        
-        # Ensure all URLs are distributed
-        if len(url_chunks) > MAX_WORKERS:
-            url_chunks[MAX_WORKERS - 1].extend(url_chunks[MAX_WORKERS:][0])
-            url_chunks = url_chunks[:MAX_WORKERS]
+        logger.info(f"Starting {MAX_WORKERS} workers, each will independently collect profiles...")
         
         # Create semaphore to control concurrency
         semaphore = asyncio.Semaphore(MAX_WORKERS)
         
-        # Start all workers (each with own tab in same browser)
+        # Start all workers (each independently collects and processes profiles)
         workers = [
-            worker(i + 1, context, url_chunks[i], semaphore, len(profile_urls))
-            for i in range(len(url_chunks))
+            worker(i + 1, context, semaphore)
+            for i in range(MAX_WORKERS)
         ]
         
         # Wait for all workers to complete
