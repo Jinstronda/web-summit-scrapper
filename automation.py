@@ -6,8 +6,12 @@ import time
 from pathlib import Path
 from typing import List, Dict, Optional
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
+from dotenv import load_dotenv
 import database as db
 import message_personalizer as mp
+
+# Load environment variables from .env file
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
