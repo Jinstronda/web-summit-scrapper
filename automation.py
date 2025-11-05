@@ -29,7 +29,7 @@ RETRY_DELAY = 2000
 # Parallel processing
 MAX_WORKERS = 5  # Number of concurrent workers
 BATCH_SIZE = 10  # Show stats every N attendees
-HEADLESS = True  # Run browsers in headless mode (no UI, faster)
+HEADLESS = False  # Run browsers in headless mode (no UI, faster)
 
 def load_cookies() -> List[Dict]:
     """Load cookies from cookies.json."""
@@ -48,13 +48,10 @@ async def setup_browser() -> tuple[Browser, BrowserContext, Page]:
     page = await context.new_page()
     return browser, context, page
 
-async def create_worker_context(browser: Browser) -> tuple[BrowserContext, Page]:
-    """Create a new browser context (tab) for a worker."""
-    context = await browser.new_context()
-    cookies = load_cookies()
-    await context.add_cookies(cookies)
+async def create_worker_page(context: BrowserContext) -> Page:
+    """Create a new page (tab) for a worker."""
     page = await context.new_page()
-    return context, page
+    return page
 
 async def scroll_and_collect_profiles(page: Page) -> List[str]:
     """Scroll page and collect all profile URLs."""
@@ -261,11 +258,11 @@ async def process_attendee(page: Page, profile_url: str) -> bool:
 processed_count = 0
 processed_lock = asyncio.Lock()
 
-async def worker(worker_id: int, browser: Browser, profile_urls: List[str], semaphore: asyncio.Semaphore, total_urls: int):
+async def worker(worker_id: int, context: BrowserContext, profile_urls: List[str], semaphore: asyncio.Semaphore, total_urls: int):
     """Worker that processes attendees concurrently in its own tab."""
     global processed_count
     
-    context, page = await create_worker_context(browser)
+    page = await create_worker_page(context)
     
     try:
         for profile_url in profile_urls:
@@ -284,7 +281,7 @@ async def worker(worker_id: int, browser: Browser, profile_urls: List[str], sema
                     stats = db.get_stats()
                     logger.info(f"\n[Progress] {stats}")
     finally:
-        await context.close()
+        await page.close()
 
 async def main():
     """Main automation flow with parallel processing."""
@@ -336,7 +333,7 @@ async def main():
         
         # Start all workers (each with own tab in same browser)
         workers = [
-            worker(i + 1, browser, url_chunks[i], semaphore, len(profile_urls))
+            worker(i + 1, context, url_chunks[i], semaphore, len(profile_urls))
             for i in range(len(url_chunks))
         ]
         
