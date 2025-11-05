@@ -254,8 +254,15 @@ async def process_attendee(page: Page, profile_url: str, worker_id: int) -> bool
             logger.error(f"[Worker {worker_id}] Failed to extract data for {profile_id}")
             return False
         
-        db.insert_attendee(data)
-        logger.info(f"[Worker {worker_id}] Saved attendee: {data['name']}")
+        try:
+            db.insert_attendee(data)
+            logger.info(f"[Worker {worker_id}] Saved attendee: {data['name']}")
+        except Exception as e:
+            if "UNIQUE constraint failed" in str(e):
+                logger.warning(f"[Worker {worker_id}] Attendee {profile_id} already exists (race condition)")
+            else:
+                logger.error(f"[Worker {worker_id}] Error saving attendee: {e}")
+                return False
         
         if SCRAPE_ONLY:
             logger.info(f"[Worker {worker_id}] SCRAPE_ONLY mode - skipping meeting request")
