@@ -22,6 +22,10 @@ DELAY_AFTER_SCROLL = 2000
 MAX_RETRIES = 3
 RETRY_DELAY = 2000
 
+# Parallel processing
+MAX_WORKERS = 5  # Number of concurrent workers
+BATCH_SIZE = 10  # Show stats every N attendees
+
 def load_cookies() -> List[Dict]:
     """Load cookies from cookies.json."""
     with open('cookies.json', 'r') as f:
@@ -38,6 +42,14 @@ async def setup_browser() -> tuple[Browser, BrowserContext, Page]:
     
     page = await context.new_page()
     return browser, context, page
+
+async def create_worker_context(browser: Browser) -> tuple[BrowserContext, Page]:
+    """Create a new browser context for a worker."""
+    context = await browser.new_context()
+    cookies = load_cookies()
+    await context.add_cookies(cookies)
+    page = await context.new_page()
+    return context, page
 
 async def scroll_and_collect_profiles(page: Page) -> List[str]:
     """Scroll page and collect all profile URLs."""
@@ -240,9 +252,42 @@ async def process_attendee(page: Page, profile_url: str) -> bool:
     
     return success
 
+# Global counters for progress tracking
+processed_count = 0
+processed_lock = asyncio.Lock()
+
+async def worker(worker_id: int, browser: Browser, profile_urls: List[str], semaphore: asyncio.Semaphore):
+    """Worker that processes attendees concurrently."""
+    global processed_count
+    
+    context, page = await create_worker_context(browser)
+    
+    try:
+        for profile_url in profile_urls:
+            async with semaphore:
+                async with processed_lock:
+                    processed_count += 1
+                    current = processed_count
+                
+                logger.info(f"[Worker {worker_id}] [{current}/{len(profile_urls) * MAX_WORKERS}] Processing {profile_url}")
+                
+                success = await process_attendee(page, profile_url)
+                
+                await asyncio.sleep(DELAY_BETWEEN_REQUESTS / 1000)
+                
+                if current % BATCH_SIZE == 0:
+                    stats = db.get_stats()
+                    logger.info(f"\n[Progress] {stats}")
+    finally:
+        await context.close()
+
 async def main():
-    """Main automation flow."""
+    """Main automation flow with parallel processing."""
+    global processed_count
+    processed_count = 0
+    
     logger.info("Starting Web Summit automation...")
+    logger.info(f"Running with {MAX_WORKERS} parallel workers")
     
     db.create_database()
     
@@ -261,20 +306,37 @@ async def main():
         await page.goto(DISCOVERY_URL, wait_until='domcontentloaded')
         await asyncio.sleep(3)
         
+        logger.info("Collecting all profile URLs...")
         profile_urls = await scroll_and_collect_profiles(page)
         
-        logger.info(f"Processing {len(profile_urls)} profiles...")
+        # Close the initial context (workers will create their own)
+        await context.close()
         
-        for i, profile_url in enumerate(profile_urls, 1):
-            logger.info(f"\n[{i}/{len(profile_urls)}] Processing {profile_url}")
-            
-            success = await process_attendee(page, profile_url)
-            
-            await asyncio.sleep(DELAY_BETWEEN_REQUESTS / 1000)
-            
-            if i % 10 == 0:
-                stats = db.get_stats()
-                logger.info(f"\nProgress: {stats}")
+        logger.info(f"Processing {len(profile_urls)} profiles with {MAX_WORKERS} workers...")
+        
+        # Split URLs among workers
+        chunk_size = len(profile_urls) // MAX_WORKERS
+        url_chunks = [
+            profile_urls[i:i + chunk_size] 
+            for i in range(0, len(profile_urls), chunk_size)
+        ]
+        
+        # Ensure all URLs are distributed
+        if len(url_chunks) > MAX_WORKERS:
+            url_chunks[MAX_WORKERS - 1].extend(url_chunks[MAX_WORKERS:][0])
+            url_chunks = url_chunks[:MAX_WORKERS]
+        
+        # Create semaphore to control concurrency
+        semaphore = asyncio.Semaphore(MAX_WORKERS)
+        
+        # Start all workers
+        workers = [
+            worker(i + 1, browser, url_chunks[i], semaphore)
+            for i in range(len(url_chunks))
+        ]
+        
+        # Wait for all workers to complete
+        await asyncio.gather(*workers)
         
         final_stats = db.get_stats()
         logger.info(f"\n{'='*50}")

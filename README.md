@@ -128,9 +128,22 @@ Messages are automatically personalized by AI. To customize the base message tem
 
 Want to change behavior? Edit `automation.py`:
 
-- `DELAY_BETWEEN_REQUESTS` - Time between requests (milliseconds)
-- `DELAY_AFTER_SCROLL` - Time to wait after scrolling (milliseconds)
-- `MAX_RETRIES` - How many times to retry on error
+- `MAX_WORKERS` - Number of parallel workers (default: 5)
+- `BATCH_SIZE` - Show stats every N attendees (default: 10)
+- `DELAY_BETWEEN_REQUESTS` - Time between requests (default: 3000ms)
+- `DELAY_AFTER_SCROLL` - Time to wait after scrolling (default: 2000ms)
+- `MAX_RETRIES` - How many times to retry on error (default: 3)
+
+### Parallel Processing
+
+The system runs **5 workers in parallel** by default, processing multiple attendees simultaneously. This makes it ~5x faster than sequential processing.
+
+Each worker:
+- Has its own browser context (isolated cookies and state)
+- Processes its assigned chunk of attendees
+- Respects rate limiting with delays
+
+To change the number of workers, edit `MAX_WORKERS` in `automation.py`.
 
 ## Troubleshooting
 
