@@ -144,11 +144,24 @@ async def extract_profile_data(page: Page, profile_url: str) -> Optional[Dict]:
 async def send_meeting_request(page: Page, attendee_data: Dict, worker_id: int) -> bool:
     """Send meeting request to attendee with personalized message."""
     try:
+        # Check if Request Meeting button exists and is enabled
+        request_btn = await page.query_selector('button:has-text("Request Meeting")')
+        if not request_btn:
+            logger.error(f"[Worker {worker_id}] Request Meeting button not found")
+            return False
+        
+        # Check if button is disabled (meeting limit reached)
+        is_disabled = await request_btn.get_attribute('disabled')
+        if is_disabled:
+            error_msg = await request_btn.get_attribute('data-bs-original-title')
+            logger.error(f"[Worker {worker_id}] ⚠️  MEETING LIMIT REACHED! Button disabled: {error_msg}")
+            return False
+        
         # Generate personalized message
         logger.info(f"[Worker {worker_id}] Generating personalized message for {attendee_data.get('name', 'attendee')}...")
         message = mp.personalize_message(attendee_data)
         
-        await page.click('button:has-text("Request Meeting")')
+        await request_btn.click()
         logger.info(f"[Worker {worker_id}] Clicked Request Meeting button")
         await asyncio.sleep(2)
         
