@@ -28,7 +28,7 @@ BASE_MESSAGE = """Dear {{Name}}
 
 {{Second Line}}
 
-I am a Machine Learning Engineer and past Solo Founder that is currently working at Augusta Labs, we are an applied AI lab from Europe working with Fortune 500 companies and governments (incl. Veolia, Sage, Millennium and Avantor), helping them embed AI into core operations to drive tangible performance and efficiency gains.
+I'm a 21-year-old founder who built and exited two companies. Now at Augusta Labs, we're an applied AI lab from Europe working with Fortune 500 companies and governments (incl. Veolia, Sage, Millennium and Avantor), helping them embed AI into core operations to drive tangible performance and efficiency gains.
 
 Would be great to connect while we're both at WebSummit.
 
