@@ -1,0 +1,40 @@
+# Database
+*.db
+*.db-journal
+websummit_attendees.db
+
+# Environment variables (API keys)
+.env
+.env.local
+
+# Cookies (sensitive)
+cookies.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+test-results/
+playwright-report/
+
