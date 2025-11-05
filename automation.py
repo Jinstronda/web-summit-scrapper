@@ -142,81 +142,81 @@ async def extract_profile_data(page: Page, profile_url: str) -> Optional[Dict]:
         logger.error(f"Error extracting profile data from {profile_url}: {e}")
         return None
 
-async def send_meeting_request(page: Page, attendee_data: Dict) -> bool:
+async def send_meeting_request(page: Page, attendee_data: Dict, worker_id: int) -> bool:
     """Send meeting request to attendee with personalized message."""
     try:
         # Generate personalized message
-        logger.info(f"Generating personalized message for {attendee_data.get('name', 'attendee')}...")
+        logger.info(f"[Worker {worker_id}] Generating personalized message for {attendee_data.get('name', 'attendee')}...")
         message = mp.personalize_message(attendee_data)
         
         await page.click('button:has-text("Request Meeting")')
-        logger.info("Clicked Request Meeting button")
+        logger.info(f"[Worker {worker_id}] Clicked Request Meeting button")
         await asyncio.sleep(2)
         
         modal = await page.wait_for_selector('[role="dialog"]', timeout=5000)
         if not modal:
-            logger.error("Modal did not appear")
+            logger.error(f"[Worker {worker_id}] Modal did not appear")
             return False
         
-        logger.info("Modal appeared, selecting location...")
+        logger.info(f"[Worker {worker_id}] Modal appeared, selecting location...")
         location_label = await page.query_selector('label[for="location_3407"]')
         if location_label:
             await location_label.click()
-            logger.info("Selected first location")
+            logger.info(f"[Worker {worker_id}] Selected first location")
         else:
             location_links = await page.query_selector_all('a[href*="load_location_slots"]')
             if location_links:
                 await location_links[0].click()
-                logger.info("Selected first available location")
+                logger.info(f"[Worker {worker_id}] Selected first available location")
         
         await asyncio.sleep(2)
         
-        logger.info("Selecting time slot...")
+        logger.info(f"[Worker {worker_id}] Selecting time slot...")
         slot_card = await page.query_selector('.slot-card')
         if slot_card:
             await slot_card.click()
-            logger.info("Selected first time slot")
+            logger.info(f"[Worker {worker_id}] Selected first time slot")
         else:
             slot_labels = await page.query_selector_all('label[for^="location_time_slot_"]')
             if slot_labels:
                 await slot_labels[0].click()
-                logger.info("Selected first available time slot")
+                logger.info(f"[Worker {worker_id}] Selected first available time slot")
         
         await asyncio.sleep(1)
         
-        logger.info("Filling personalized message...")
+        logger.info(f"[Worker {worker_id}] Filling personalized message...")
         message_field = await page.query_selector('textarea[name="description"]')
         if message_field:
             await message_field.fill(message)
-            logger.info("Personalized message filled")
+            logger.info(f"[Worker {worker_id}] Personalized message filled")
         
         await asyncio.sleep(1)
         
-        logger.info("Clicking send request...")
+        logger.info(f"[Worker {worker_id}] Clicking send request...")
         send_btn = await page.query_selector('button:has-text("Send request")')
         if send_btn:
             await send_btn.click()
-            logger.info("Send request clicked")
+            logger.info(f"[Worker {worker_id}] Send request clicked")
             await asyncio.sleep(2)
             return True
         else:
-            logger.error("Send button not found")
+            logger.error(f"[Worker {worker_id}] Send button not found")
             return False
         
     except Exception as e:
-        logger.error(f"Error sending meeting request: {e}")
+        logger.error(f"[Worker {worker_id}] Error sending meeting request: {e}")
         return False
 
-async def process_attendee(page: Page, profile_url: str) -> bool:
+async def process_attendee(page: Page, profile_url: str, worker_id: int) -> bool:
     """Process a single attendee: scrape data and send meeting request."""
     profile_id = profile_url.split('/profiles/')[-1]
     
     if db.attendee_exists(profile_id):
         attendee = db.get_attendee(profile_id)
         if attendee['meeting_requested']:
-            logger.info(f"Skipping {profile_id} - already processed")
+            logger.info(f"[Worker {worker_id}] Skipping {profile_id} - already processed")
             return True
-        logger.info(f"Attendee {profile_id} exists, sending meeting request...")
+        logger.info(f"[Worker {worker_id}] Attendee {profile_id} exists, sending meeting request...")
         # Convert DB row to dict format for personalizer
         attendee_data = {
             'name': attendee.get('name', ''),
@@ -231,11 +231,11 @@ async def process_attendee(page: Page, profile_url: str) -> bool:
     else:
         data = await extract_profile_data(page, profile_url)
         if not data:
-            logger.error(f"Failed to extract data for {profile_id}")
+            logger.error(f"[Worker {worker_id}] Failed to extract data for {profile_id}")
             return False
         
         db.insert_attendee(data)
-        logger.info(f"Saved attendee: {data['name']}")
+        logger.info(f"[Worker {worker_id}] Saved attendee: {data['name']}")
         attendee_data = data
     
     attendee_name = attendee_data['name']
@@ -243,14 +243,14 @@ async def process_attendee(page: Page, profile_url: str) -> bool:
     await page.goto(profile_url, wait_until='domcontentloaded')
     await asyncio.sleep(1)
     
-    success = await send_meeting_request(page, attendee_data)
+    success = await send_meeting_request(page, attendee_data, worker_id)
     
     if success:
         db.mark_as_sent(profile_id)
-        logger.info(f"✓ Meeting request sent to {attendee_name}")
+        logger.info(f"[Worker {worker_id}] ✓ Meeting request sent to {attendee_name}")
     else:
         db.mark_as_failed(profile_id, "Failed to send meeting request")
-        logger.error(f"✗ Failed to send meeting request to {attendee_name}")
+        logger.error(f"[Worker {worker_id}] ✗ Failed to send meeting request to {attendee_name}")
     
     return success
 
@@ -273,7 +273,7 @@ async def worker(worker_id: int, context: BrowserContext, profile_urls: List[str
                 
                 logger.info(f"[Worker {worker_id}] [{current}/{total_urls}] Processing {profile_url}")
                 
-                success = await process_attendee(page, profile_url)
+                success = await process_attendee(page, profile_url, worker_id)
                 
                 await asyncio.sleep(DELAY_BETWEEN_REQUESTS / 1000)
                 
